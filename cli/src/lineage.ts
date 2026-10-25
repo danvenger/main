@@ -8,6 +8,7 @@ import {
   MalformedLineageError,
   type LineageLookupResult,
 } from './stellar-lookup.js'
+import { DEFAULT_NETWORK_PASSPHRASE, resolveNetwork } from './network.js'
 
 /**
  * Exit codes for the `lineage` command. A missing record uses the shared
@@ -56,7 +57,7 @@ export async function handleLineage(
   const rpcUrl = resolveRpcUrl(flags['rpc-url'] || flags.rpcUrl)
   const sourceAddress =
     flags['source-address'] || flags.sourceAddress || process.env.HARPOCRATES_SOURCE_ADDRESS
-  const network = flags.network || 'Test SDF Network ; September 2015'
+  const network = resolveNetwork(flags.network || DEFAULT_NETWORK_PASSPHRASE)
   const outputFormat = flags.output || flags.o || 'text'
 
   if (!rawDigest) {
