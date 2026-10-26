@@ -1,14 +1,8 @@
-import { runDryRun, validateMetadata, validatePayloadSize, computeHash, checkDependencies } from '../src/dry-run';
+import { createHash } from 'node:crypto';
+import { describe, expect, it } from 'vitest';
+import { runDryRun, validateMetadata, validatePayloadSize, computeHash, checkDependencies } from '../src/dry-run.js';
 
 const MAX_PAYLOAD_SIZE = 1024 * 1024;
-
-// Mock crypto for testing
-jest.mock('crypto', () => ({
-  createHash: jest.fn(() => ({
-    update: jest.fn().mockReturnThis(),
-    digest: jest.fn().mockReturnValue('mock_hash_123')
-  }))
-}));
 
 describe('Dry Run Validation', () => {
   describe('validateMetadata', () => {
@@ -118,7 +112,7 @@ describe('Dry Run Validation', () => {
       expect(result.privacy_preserved).toBe(true);
       expect(result.interoperable).toBe(true);
       expect(result.safe).toBe(true);
-      expect(result.payload_hash).toBe('mock_hash_123');
+      expect(result.payload_hash).toBe(createHash('sha256').update('test payload').digest('hex'));
     });
 
     it('should return error for malformed metadata', () => {

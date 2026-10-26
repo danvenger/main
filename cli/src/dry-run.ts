@@ -33,7 +33,7 @@ const SUPPORTED_VERSIONS = ['v1', 'v2'];
  * @param metadata - The metadata object to validate
  * @throws Error if validation fails
  */
-function validateMetadata(metadata: any): void {
+export function validateMetadata(metadata: any): void {
   if (typeof metadata !== 'object' || metadata === null) {
     throw new Error('Metadata must be an object');
   }
@@ -55,7 +55,7 @@ function validateMetadata(metadata: any): void {
  * @param payload - The payload to validate
  * @throws Error if payload is too large
  */
-function validatePayloadSize(payload: string): void {
+export function validatePayloadSize(payload: string): void {
   const payloadBytes = Buffer.from(payload, 'utf-8');
   if (payloadBytes.length > MAX_PAYLOAD_SIZE) {
     throw new Error(
@@ -69,21 +69,23 @@ function validatePayloadSize(payload: string): void {
  * @param data - The data to hash
  * @returns Hex string of the hash
  */
-function computeHash(data: string): string {
+export function computeHash(data: string): string {
   return crypto.createHash('sha256').update(data).digest('hex');
 }
 
 /**
  * Checks that dependency identifiers are well-formed.
  * @param deps - List of dependencies
+ * @returns true when every dependency is well-formed
  * @throws Error if a dependency is invalid
  */
-function checkDependencies(deps: string[]): void {
+export function checkDependencies(deps: string[]): true {
   for (const dep of deps) {
     if (typeof dep !== 'string' || dep.trim().length === 0) {
       throw new Error('Dependency check failed');
     }
   }
+  return true;
 }
 
 /**
@@ -121,7 +123,10 @@ export function runDryRun(input: DryRunInput): DryRunResult {
     let errorType = 'unknown';
     let message = 'Internal error occurred';
 
-    if (error.message.includes('Missing required metadata key')) {
+    if (
+      error.message.includes('Missing required metadata key') ||
+      error.message.includes('Metadata must be an object')
+    ) {
       errorType = 'malformed_input';
       message = 'Input validation failed';
     } else if (error.message.includes('exceeds maximum')) {
