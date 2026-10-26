@@ -1,4 +1,4 @@
-import { Account, BASE_FEE, Contract, Networks, StrKey, TransactionBuilder, rpc, scValToNative, nativeToScVal } from '@stellar/stellar-sdk'
+import { Account, BASE_FEE, Contract, Networks, StrKey, TransactionBuilder, rpc, scValToNative, nativeToScVal, xdr } from '@stellar/stellar-sdk'
 import { asHex32, bytesToHex, hexToBytes } from './hashing.js'
 
 /**
@@ -328,7 +328,7 @@ async function simulateRead(
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
 
   const contract = new Contract(contractId)
-  const operation = contract.call(method, ...(args as Parameters<typeof contract.call>[1]))
+  const operation = contract.call(method, ...(args as xdr.ScVal[]))
 
   if (!source) {
     throw new Error(

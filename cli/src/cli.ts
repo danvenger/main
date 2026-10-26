@@ -35,7 +35,7 @@ import { verifyLineageTree, formatLineageTree } from './verify-lineage.js'
 import { logStructured, redactSensitive } from './logging.js'
 import { createRequire } from 'node:module'
 import { parseCliArgs, CliUsageError, type ParsedArgs } from './args.js'
-import { handleRegister } from './register.js'
+import { resolveHashOutput } from './cli-helpers.js'
 import { DEFAULT_NETWORK_PASSPHRASE, resolveNetwork } from './network.js'
 
 function getCliVersion(): string {
@@ -91,6 +91,10 @@ function exit(code: number, message?: string): never {
 // ── Main dispatcher ───────────────────────────────────────────────────────
 
 export async function main(args: string[] = process.argv.slice(2)): Promise<void> {
+  if (args[0] === '--version' || args[0] === 'version') {
+    return printText(getCliVersion())
+  }
+
   let parsed: ParsedArgs
   try {
     parsed = parseCliArgs(args)
@@ -116,8 +120,6 @@ export async function main(args: string[] = process.argv.slice(2)): Promise<void
       return await handleC2pa(flags, debugLog)
     case 'verify-lineage':
       return await handleVerifyLineage(flags, debugLog)
-    case 'register':
-      return await handleRegister(flags, debugLog)
     case 'help':
       return printHelp()
     default:
@@ -316,15 +318,7 @@ async function handleHash(flags: Record<string, string>): Promise<void> {
       bytes = (await stat(filePath)).size
     }
 
-    if (outputFormat === 'json') {
-      printJson({
-        algorithm: 'sha256',
-        digest: hash,
-        bytes,
-      })
-    } else {
-      printText(hash)
-    }
+    printText(resolveHashOutput('sha256', bytes, hash, outputFormat))
   } catch {
     exit(8, 'hashing failed')
   }
@@ -597,28 +591,12 @@ Commands:
   verify         Verify a proof against the Stellar network.
   status         Report the on-chain lifecycle status of a proof by proof ID.
   verify-lineage Verify a derivative's full lineage back to registered originals.
-  register       Register a source or seal proof using a local signing key.
   manifest       Create a proof manifest from metadata.
   hash           Compute the SHA-256 hash of a file.
   verify-receipt Verify an offline signed receipt.
   c2pa           Export C2PA authenticity assertions from a proof manifest.
   version        Print the CLI version.
   help           Show this help message.
-
-Register options:
-  --kind           Proof kind to register: "source" or "seal" (required).
-  --contract-id    Contract ID on Stellar (required).
-  --proof-id       Proof ID to register (required).
-  --video-hash     32-byte hex video hash (required).
-  --source-hash    32-byte hex source hash (required for source proofs).
-  --metadata-hash  32-byte hex metadata hash (required for seal proofs).
-  --rpc-url        Stellar RPC URL (default: testnet).
-  --network        Network passphrase (default: testnet).
-  --signer-file    Path to a file containing the signer secret key.
-  --dry-run        Simulate only; stop before submitting.
-  --output, -o     Output format: "text" (default) or "json".
-  The signer secret is read only from HARPOCRATES_SIGNER_SECRET or --signer-file,
-  never from a flag value, and is never logged.
 
 Status options:
   --contract-id     Contract ID on Stellar (required).
@@ -679,7 +657,6 @@ Hash options:
 
 Environment variables:
   HARPOCRATES_SOURCE_ADDRESS   Source address for Stellar simulation.
-  HARPOCRATES_SIGNER_SECRET    Signer secret key for the register command.
   HARPOCRATES_DEBUG            Equivalent to --debug.
 
 Debugging:
