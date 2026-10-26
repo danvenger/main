@@ -34,9 +34,9 @@ jobs:
           pip install pytest
       
       - name: Run Python tests
+        # Run from the repo root so `devx.testnet_dry_run` is importable.
         run: |
-          cd devx
-          python -m pytest test_testnet_dry_run.py -v
+          python -m pytest devx/test_testnet_dry_run.py -v
 
   typescript-tests:
     runs-on: ubuntu-latest
@@ -46,18 +46,19 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: '18'
+          node-version: '22'
           cache: 'npm'
+          cache-dependency-path: cli/package-lock.json
       
       - name: Install dependencies
         run: |
           cd cli
-          npm install
+          npm ci
       
       - name: Run TypeScript tests
         run: |
           cd cli
-          npm test -- --testPathPattern=dry-run.test.ts
+          npx vitest run test/dry-run.test.ts
 
   lint-check:
     runs-on: ubuntu-latest
@@ -79,17 +80,17 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: '18'
+          node-version: '22'
       
       - name: Install dependencies
         run: |
           cd cli
-          npm install
+          npm ci
       
       - name: Run ESLint
         run: |
           cd cli
-          npm run lint -- --ext .ts src/dry-run.ts
+          npx eslint src/dry-run.ts
 
   dry-run-integration:
     runs-on: ubuntu-latest
@@ -123,19 +124,20 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: '18'
+          node-version: '22'
       
-      - name: Install CLI dependencies
+      - name: Install and build CLI
         run: |
           cd cli
-          npm install
+          npm ci
+          npm run build
       
       - name: Run TypeScript dry run with valid input
         run: |
           cd cli
-          npx ts-node src/dry-run.ts --payload "test payload" --version v1 --timestamp "2024-01-01T00:00:00Z" --hash "abc123"
+          node dist/dry-run.js --payload "test payload" --version v1 --timestamp "2024-01-01T00:00:00Z" --hash "abc123"
       
       - name: Run TypeScript dry run with invalid input
         run: |
           cd cli
-          npx ts-node src/dry-run.ts --payload "test payload" --version v3 --timestamp "2024-01-01T00:00:00Z" --hash "abc123" || true
+          node dist/dry-run.js --payload "test payload" --version v3 --timestamp "2024-01-01T00:00:00Z" --hash "abc123" || true

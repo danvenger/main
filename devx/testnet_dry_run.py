@@ -2,8 +2,7 @@ import json
 import sys
 import hashlib
 import logging
-from typing import Any, Dict, Optional
-from pathlib import Path
+from typing import Any, Dict
 
 # Configure logging to be privacy-safe
 logging.basicConfig(
@@ -55,15 +54,15 @@ def validate_metadata(metadata: Dict[str, Any]) -> bool:
     """
     if not isinstance(metadata, dict):
         raise MalformedInputError("Metadata must be a dictionary")
-    
+
     required_keys = ['version', 'timestamp', 'hash']
     for key in required_keys:
         if key not in metadata:
             raise MalformedInputError(f"Missing required metadata key: {key}")
-    
+
     if metadata['version'] not in SUPPORTED_VERSIONS:
         raise UnsupportedVersionError(f"Unsupported version: {metadata['version']}")
-    
+
     return True
 
 
@@ -100,13 +99,13 @@ def check_dependencies(deps: list) -> bool:
 def run_dry_run(input_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Execute a testnet deployment dry run.
-    
+
     Args:
         input_data: Dictionary containing metadata and payload
-        
+
     Returns:
         Dictionary with dry run results
-        
+
     Raises:
         DryRunError: If validation fails
     """
@@ -114,21 +113,21 @@ def run_dry_run(input_data: Dict[str, Any]) -> Dict[str, Any]:
         # Extract and validate metadata
         metadata = input_data.get('metadata', {})
         validate_metadata(metadata)
-        
+
         # Extract and validate payload
         payload = input_data.get('payload', b'')
         if isinstance(payload, str):
             payload = payload.encode('utf-8')
         validate_payload_size(payload)
-        
+
         # Compute integrity hash
         payload_hash = compute_hash(payload)
-        
+
         # Check dependencies
         deps = input_data.get('dependencies', [])
         if not check_dependencies(deps):
             raise DependencyFailureError("Dependency check failed")
-        
+
         # Simulate deployment validation
         result = {
             'status': 'success',
@@ -139,10 +138,10 @@ def run_dry_run(input_data: Dict[str, Any]) -> Dict[str, Any]:
             'interoperable': True,
             'safe': True
         }
-        
+
         logger.info(f"Dry run completed successfully for version {metadata['version']}")
         return result
-        
+
     except MalformedInputError as e:
         logger.warning(f"Malformed input detected: {str(e)}")
         return {
@@ -204,7 +203,7 @@ def main():
             'privacy_preserved': True
         }, indent=2))
         sys.exit(1)
-    except Exception as e:
+    except Exception:
         print(json.dumps({
             'status': 'error',
             'error_type': 'unknown',

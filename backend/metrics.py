@@ -35,6 +35,7 @@ class MetricsCollector:
         self._retention_dry_run_eligible: int | None = None
         self._indexer_unknown_topics = 0
         self._indexer_events_total: Dict[str, int] = {}
+        self._stego_limit_breaches_total: Dict[str, int] = {}
 
         # Job queue backlog metrics (refreshed at most every N seconds)
         self._job_refresh_interval = (
@@ -63,6 +64,7 @@ class MetricsCollector:
             self._retention_dry_run_eligible = None
             self._indexer_unknown_topics = 0
             self._indexer_events_total.clear()
+            self._stego_limit_breaches_total.clear()
             self._last_job_refresh = 0.0
             self._cached_job_counts.clear()
             self._cached_oldest_queued.clear()
@@ -255,6 +257,12 @@ class MetricsCollector:
         with self._lock:
             self._indexer_events_total[clean] = self._indexer_events_total.get(clean, 0) + 1
 
+    def record_stego_limit_breach(self, operation: str) -> None:
+        """Count a stego worker that hit its memory or CPU limit (embed/extract)."""
+        clean = operation if operation in {"embed", "extract"} else "other"
+        with self._lock:
+            self._stego_limit_breaches_total[clean] = self._stego_limit_breaches_total.get(clean, 0) + 1
+
     def record_dependency_status(self, name: str, status: str, critical: bool) -> None:
         """Record the latest bounded readiness state for one dependency."""
         clean_name = (name or "unknown").strip() or "unknown"
@@ -375,6 +383,13 @@ class MetricsCollector:
             lines.append("# HELP harpocrates_indexer_unknown_topics_total Total on-chain events skipped due to unknown topic.")
             lines.append("# TYPE harpocrates_indexer_unknown_topics_total counter")
             lines.append(f"harpocrates_indexer_unknown_topics_total {self._indexer_unknown_topics}")
+
+            if self._stego_limit_breaches_total:
+                lines.append("")
+                lines.append("# HELP harpocrates_stego_limit_breaches_total Stego worker runs that exceeded memory or CPU limits.")
+                lines.append("# TYPE harpocrates_stego_limit_breaches_total counter")
+                for operation, count in sorted(self._stego_limit_breaches_total.items()):
+                    lines.append(f'harpocrates_stego_limit_breaches_total{{operation="{operation}"}} {count}')
 
             if self._indexer_events_total:
                 lines.append("")

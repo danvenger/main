@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import { pathToFileURL } from 'url';
 
 interface DryRunInput {
   metadata: {
@@ -33,20 +34,21 @@ const SUPPORTED_VERSIONS = ['v1', 'v2'];
  * @param metadata - The metadata object to validate
  * @throws Error if validation fails
  */
-export function validateMetadata(metadata: any): void {
+export function validateMetadata(metadata: unknown): asserts metadata is DryRunInput['metadata'] {
   if (typeof metadata !== 'object' || metadata === null) {
     throw new Error('Metadata must be an object');
   }
 
+  const record = metadata as Record<string, unknown>;
   const requiredKeys = ['version', 'timestamp', 'hash'];
   for (const key of requiredKeys) {
-    if (!(key in metadata)) {
+    if (!(key in record)) {
       throw new Error(`Missing required metadata key: ${key}`);
     }
   }
 
-  if (!SUPPORTED_VERSIONS.includes(metadata.version)) {
-    throw new Error(`Unsupported version: ${metadata.version}`);
+  if (typeof record.version !== 'string' || !SUPPORTED_VERSIONS.includes(record.version)) {
+    throw new Error(`Unsupported version: ${String(record.version)}`);
   }
 }
 
@@ -118,7 +120,8 @@ export function runDryRun(input: DryRunInput): DryRunResult {
       interoperable: true,
       safe: true
     };
-  } catch (error: any) {
+  } catch (caught: unknown) {
+    const error = caught instanceof Error ? caught : new Error(String(caught));
     // Return privacy-safe error response
     let errorType = 'unknown';
     let message = 'Internal error occurred';
@@ -149,6 +152,14 @@ export function runDryRun(input: DryRunInput): DryRunResult {
   }
 }
 
+interface DryRunCliOptions {
+  file?: string;
+  payload?: string;
+  version?: string;
+  timestamp?: string;
+  hash?: string;
+}
+
 /**
  * Main CLI handler for dry-run command.
  */
@@ -161,7 +172,7 @@ export function setupDryRunCommand(program: Command): void {
     .option('-v, --version <string>', 'Metadata version')
     .option('-t, --timestamp <string>', 'Metadata timestamp')
     .option('-h, --hash <string>', 'Metadata hash')
-    .action(async (options: any) => {
+    .action(async (options: DryRunCliOptions) => {
       let input: DryRunInput;
 
       try {
@@ -193,13 +204,24 @@ export function setupDryRunCommand(program: Command): void {
         } else {
           process.exit(1);
         }
-      } catch (error: any) {
+      } catch (error: unknown) {
         if (error instanceof SyntaxError) {
           console.error('Error: Invalid JSON input');
         } else {
-          console.error(`Error: ${error.message}`);
+          console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
         }
         process.exit(1);
       }
     });
+}
+
+/**
+ * Standalone entry point: `node dist/dry-run.js --payload ... [--version v1]`.
+ * The flags of the `dry-run` sub-command are accepted directly.
+ */
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const program = new Command();
+  program.name('harpocrates-dry-run');
+  setupDryRunCommand(program);
+  program.parse([process.argv[0], process.argv[1], 'dry-run', ...process.argv.slice(2)]);
 }
