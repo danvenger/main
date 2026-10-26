@@ -8,11 +8,15 @@ import shutil
 import struct
 import subprocess
 import threading
+import warnings
 import zlib
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from metrics import collector as metrics_collector
 from tracing import traced
 
 import numpy as np
@@ -28,6 +32,81 @@ from envelope import (
 
 BORDER_BLOCK = 6
 BORDER_STRIDE = 2
+
+DEFAULT_STEGO_MEMORY_LIMIT_BYTES = 536_870_912
+DEFAULT_STEGO_CPU_LIMIT_SECONDS = 60
+DEFAULT_STEGO_POOL_MAX_WORKERS = 4
+
+
+class StegoError(RuntimeError):
+    """Base class for steganography processing failures."""
+
+
+class StegoLimitExceededError(StegoError):
+    """A stego worker exceeded its configured memory or CPU limit."""
+
+
+_stego_pool: ProcessPoolExecutor | None = None
+_stego_pool_key: tuple[int, int, int] | None = None
+_stego_pool_lock = threading.Lock()
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        value = int(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
+
+
+def _init_stego_worker(memory_limit_bytes: int, cpu_limit_seconds: int) -> None:
+    """Apply per-process resource limits inside a stego pool worker."""
+    if os.name == "nt":
+        warnings.warn(
+            "stego worker memory/CPU limits use resource.setrlimit are not supported on Windows; "
+            "running without per-process limits",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return
+    import resource
+
+    resource.setrlimit(resource.RLIMIT_AS, (memory_limit_bytes, memory_limit_bytes))
+    resource.setrlimit(resource.RLIMIT_CPU, (cpu_limit_seconds, cpu_limit_seconds))
+
+
+def _get_stego_pool(
+    *,
+    memory_limit_bytes: int | None = None,
+    cpu_limit_seconds: int | None = None,
+) -> ProcessPoolExecutor:
+    """Return the shared stego process pool, recreating it when limits change."""
+    global _stego_pool, _stego_pool_key
+    memory = memory_limit_bytes or _env_int("STEGO_MEMORY_LIMIT_BYTES", DEFAULT_STEGO_MEMORY_LIMIT_BYTES)
+    cpu = cpu_limit_seconds or _env_int("STEGO_CPU_LIMIT_SECONDS", DEFAULT_STEGO_CPU_LIMIT_SECONDS)
+    workers = _env_int("STEGO_POOL_MAX_WORKERS", DEFAULT_STEGO_POOL_MAX_WORKERS)
+    key = (memory, cpu, workers)
+    with _stego_pool_lock:
+        if _stego_pool is None or _stego_pool_key != key:
+            if _stego_pool is not None:
+                _stego_pool.shutdown(wait=False, cancel_futures=True)
+            _stego_pool = ProcessPoolExecutor(
+                max_workers=workers,
+                initializer=_init_stego_worker,
+                initargs=(memory, cpu),
+            )
+            _stego_pool_key = key
+        return _stego_pool
+
+
+def _reset_stego_pool() -> None:
+    """Discard the shared pool (after a broken worker, or in tests)."""
+    global _stego_pool, _stego_pool_key
+    with _stego_pool_lock:
+        if _stego_pool is not None:
+            _stego_pool.shutdown(wait=False, cancel_futures=True)
+        _stego_pool = None
+        _stego_pool_key = None
 
 
 @dataclass(frozen=True)
@@ -50,14 +129,13 @@ def canonical_metadata_hash_compat(metadata: dict[str, Any]) -> str:
     return canonical_metadata_hash(metadata)
 
 
-@traced("media.embed", attributes={"media.operation": "embed"})
-def embed_metadata(
+def _embed_metadata_process(
     source_path: Path | str,
     output_path: Path | str,
     metadata: dict[str, Any],
     progress_callback: Callable[[int, int | None], None] | None = None,
 ) -> None:
-    """Embed ``metadata`` into the video.
+    """Embed ``metadata`` into the video (runs inside a stego worker).
 
     ``progress_callback(frames_done, frames_total)`` is called after each frame is
     written; ``frames_total`` is ``None`` when ffprobe cannot report a frame count.
@@ -142,10 +220,16 @@ def embed_metadata(
     source_path: Path | str,
     output_path: Path | str,
     metadata: dict[str, Any],
+    progress_callback: Callable[[int, int | None], None] | None = None,
     *,
     memory_limit_bytes: int | None = None,
     cpu_limit_seconds: int | None = None,
 ) -> None:
+    """Embed ``metadata`` into the video in an isolated, resource-limited worker.
+
+    A per-frame ``progress_callback`` cannot cross the process boundary, so it is
+    called once with the final frame count when the worker finishes.
+    """
     pool = _get_stego_pool(
         memory_limit_bytes=memory_limit_bytes,
         cpu_limit_seconds=cpu_limit_seconds,
@@ -158,6 +242,9 @@ def embed_metadata(
     )
     try:
         future.result()
+        if progress_callback is not None:
+            frames = _probe_video(output_path).frame_count
+            progress_callback(frames or 0, frames)
     except BrokenProcessPool as exc:
         _reset_stego_pool()
         metrics_collector.record_stego_limit_breach("embed")
@@ -354,10 +441,18 @@ def _start_decode(ffmpeg: str, source_path: Path | str, info: VideoInfo) -> subp
             ffmpeg,
             "-v",
             "error",
+            # Single-threaded so ffmpeg fits inside the stego worker's RLIMIT_AS,
+            # which child processes inherit.
+            "-threads",
+            "1",
+            "-filter_threads",
+            "1",
             "-i",
             str(source_path),
             "-map",
             "0:v:0",
+            "-threads",
+            "1",
             "-f",
             "rawvideo",
             "-pix_fmt",
@@ -380,6 +475,8 @@ def _start_encode(ffmpeg: str, output_path: Path | str, info: VideoInfo) -> subp
             "-y",
             "-v",
             "error",
+            "-filter_threads",
+            "1",
             "-f",
             "rawvideo",
             "-pix_fmt",
@@ -393,6 +490,8 @@ def _start_encode(ffmpeg: str, output_path: Path | str, info: VideoInfo) -> subp
             "-an",
             "-c:v",
             "libx264",
+            "-threads",
+            "1",
             "-preset",
             "medium",
             "-crf",

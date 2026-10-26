@@ -78,7 +78,12 @@ jobs:
         run: cargo install cargo-audit --locked || true
       - name: cargo audit (Contracts)
         working-directory: contracts
-        run: cargo audit
+        # RUSTSEC-2026-0387 (crypto-bigint 0.5.5 timing variability) arrives only via
+        # soroban-sdk 29 -> soroban-env-host (the native test host) -> elliptic-curve 0.13.
+        # It is not linked into the wasm32 contract build, and no compatible fix exists:
+        # even soroban-env-host 30.0.0 pins elliptic-curve ^0.13, while crypto-bigint
+        # >=0.7.6 needs elliptic-curve 0.14. Remove the ignore once soroban-sdk upgrades.
+        run: cargo audit --ignore RUSTSEC-2026-0387
 
   container-scan:
     name: Deployment Container Non-Root Checks

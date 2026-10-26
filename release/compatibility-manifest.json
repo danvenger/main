@@ -68,7 +68,7 @@
     {
       "component": "backend",
       "path": "backend/app.py",
-      "sha256": "e7d69d52f90af3156a4b0b5bb184754165d45e4641b031267e6816f2b25ba4d4"
+      "sha256": "0b8116647d7b54108f14a9abeeebcdb59ab5370862d18d17843a3d379951a743"
     },
     {
       "component": "backend",
@@ -78,7 +78,7 @@
     {
       "component": "backend",
       "path": "backend/metrics.py",
-      "sha256": "91b783def9be374c33921e3cd2c123a2fdb0ef111b2cf79f51020900686ebb87"
+      "sha256": "83de1ac1c4168b01a9e9e535b133b30274b5f8f460bebcb856c1fe972799cb92"
     },
     {
       "component": "circuit",
